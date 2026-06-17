@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mystery3DPrints — Spin. Discover. Print.</title>
+<meta name="description" content="Spin the wheel and discover your next 3D print. Fresh models updated daily. Free spins every day."/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d14;color:#e8e8f0;font-family:system-ui,-apple-system,sans-serif;min-height:100vh}
+button{cursor:pointer;font-family:inherit}
+input,textarea,select{font-family:inherit}
+a{text-decoration:none}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:#13131f}
+::-webkit-scrollbar-thumb{background:#2a2a3d;border-radius:3px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef} = React;
+
+const SB_URL = "https://kmlemcoibfiziuiockfn.supabase.co";
+const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImttbGVtY29pYmZpeml1aW9ja2ZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0MTU3NDMsImV4cCI6MjA5NTk5MTc0M30.WHhFFXz5YlS1Kzp-PgZV5vV83igkYx0ysHuo72RNDsc";
+
+const sb = async (path, opts={}) => {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    headers:{apikey:SB_ANON,Authorization:`Bearer ${SB_ANON}`,"Content-Type":"application/json",Prefer:"return=representation",...opts.headers},
+    ...opts
+  });
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+};
+
+const sbAuth = async (action, body) => {
+  const res = await fetch(`${SB_URL}/auth/v1/${action}`, {
+    method:"POST",
+    headers:{apikey:SB_ANON,"Content-Type":"application/json"},
+    body:JSON.stringify(body)
+  });
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error_description||data.msg||"Auth error");
+  return data;
+};
+
+const CATS = [
+  {id:"home",label:"Home & Living",emoji:"🏠",color:"#FF6B6B"},
+  {id:"gaming",label:"Gaming & Toys",emoji:"🎮",color:"#4ECDC4"},
+  {id:"nature",label:"Nature & Animals",emoji:"🌿",color:"#45B7D1"},
+  {id:"tools",label:"Tools & Gadgets",emoji:"🔧",color:"#96CEB4"},
+  {id:"art",label:"Art & Decor",emoji:"🎨",color:"#FFEAA7"},
+  {id:"scifi",label:"Sci-Fi & Fantasy",emoji:"🚀",color:"#DDA0DD"},
+  {id:"miniatures",label:"Miniatures",emoji:"🔬",color:"#98D8C8"},
+  {id:"gifts",label:"Gifts & Novelties",emoji:"🎁",color:"#F7DC6F"},
+  {id:"hall",label:"Hall of Prints",emoji:"🏆",color:"#FF9FF3"},
+];
+
+const FALLBACK = {
+  home:[{id:1,name:"Modular Cable Organizer",desc:"Keep your desk tidy",img:"https://images.unsplash.com/photo-1586281380349-632531db7ed4?w=400&q=80",link:"https://www.printables.com/search/results?q=cable+organizer&o=likes"}],
+  gaming:[{id:2,name:"Dice Tower Castle",desc:"Roll in style",img:"https://images.unsplash.com/photo-1606092195730-5d7b9af1efc5?w=400&q=80",link:"https://www.printables.com/search/results?q=dice+tower&o=likes"}],
+  nature:[{id:3,name:"Articulated Gecko",desc:"Fully poseable",img:"https://images.unsplash.com/photo-1591825729269-caeb344f6df2?w=400&q=80",link:"https://www.printables.com/search/results?q=articulated+animal&o=likes"}],
+  tools:[{id:4,name:"Adjustable Phone Stand",desc:"Multi-angle holder",img:"https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=400&q=80",link:"https://www.printables.com/search/results?q=phone+stand&o=likes"}],
+  art:[{id:5,name:"Geometric Wall Panel",desc:"Tessellating art",img:"https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=400&q=80",link:"https://www.printables.com/search/results?q=wall+art+geometric&o=likes"}],
+  scifi:[{id:6,name:"Sci-Fi Helmet",desc:"Cosplay ready",img:"https://images.unsplash.com/photo-1608889825205-eebdb9fc5806?w=400&q=80",link:"https://www.printables.com/search/results?q=cosplay+helmet&o=likes"}],
+  miniatures:[{id:7,name:"Tabletop Dragon",desc:"28mm fantasy mini",img:"https://images.unsplash.com/photo-1635863138275-d9b33299680b?w=400&q=80",link:"https://www.printables.com/search/results?q=dragon+miniature&o=likes"}],
+  gifts:[{id:8,name:"Custom Keychain",desc:"Personalized gifts",img:"https://images.unsplash.com/photo-1606760227091-3dd870d97f1d?w=400&q=80",link:"https://www.printables.com/search/results?q=keychain+gift&o=likes"}],
+};
+
+function Wheel({spinning,onEnd}){
+  const ref=useRef();
+  const st=useRef({angle:0,vel:0,going:false,done:false});
+  useEffect(()=>{
+    const c=ref.current;if(!c)return;
+    const ctx=c.getContext("2d"),cx=c.width/2,cy=c.height/2,r=cx-10;
+    const draw=a=>{
+      ctx.clearRect(0,0,c.width,c.height);
+      const sl=(2*Math.PI)/CATS.length;
+      CATS.forEach((cat,i)=>{
+        const s=a+i*sl,e=s+sl;
+        ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,s,e);
+        ctx.fillStyle=cat.color;ctx.fill();
+        ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.stroke();
+        ctx.save();ctx.translate(cx,cy);ctx.rotate(s+sl/2);
+        ctx.textAlign="right";ctx.font="bold 11px system-ui";
+        ctx.fillStyle="#1a1a2e";
+        ctx.fillText(cat.emoji+" "+cat.label,r-12,4);
+        ctx.restore();
+      });
+      ctx.beginPath();ctx.arc(cx,cy,18,0,2*Math.PI);
+      ctx.fillStyle="#fff";ctx.fill();
+    };
+    let raf;
+    const tick=()=>{
+      if(st.current.going){
+        st.current.angle+=st.current.vel;
+        st.current.vel*=0.985;
+        draw(st.current.angle);
+        if(st.current.vel<0.002&&!st.current.done){
+          st.current.going=false;st.current.done=true;
+          const sl=(2*Math.PI)/CATS.length;
+          const n=((-st.current.angle%(2*Math.PI))+2*Math.PI)%(2*Math.PI);
+          onEnd(CATS[Math.floor(n/sl)%CATS.length]);return;
+        }
+      }
+      raf=requestAnimationFrame(tick);
+    };
+    draw(st.current.angle);
+    if(spinning&&!st.current.going){
+      st.current.vel=0.25+Math.random()*0.15;
+      st.current.going=true;st.current.done=false;
+      tick();
+    }
+    return()=>cancelAnimationFrame(raf);
+  },[spinning]);
+  return(
+    <div style={{position:"relative",display:"inline-block"}}>
+      <div style={{position:"absolute",top:-16,left:"50%",transform:"translateX(-50%)",fontSize:28,zIndex:10}}>▼</div>
+      <canvas ref={ref} width={300} height={300} style={{borderRadius:"50%",boxShadow:"0 0 40px #FF6B9D44"}}/>
+    </div>
+  );
+}
+
+function App(){
+  const [page,setPage]=useState("home");
+  const [user,setUser]=useState(null);
+  const [token,setToken]=useState(null);
+  const [spins,setSpins]=useState(5);
+  const [spinning,setSpinning]=useState(false);
+  const [result,setResult]=useState(null);
+  const [model,setModel]=useState(null);
+  const [hall,setHall]=useState([]);
+  const [hForm,setHForm]=useState({name:"",desc:"",category:"home",img:null,prev:null});
+  const [hDone,setHDone]=useState(false);
+  const [aForm,setAForm]=useState({email:"",pass:"",name:""});
+  const [aMode,setAMode]=useState("login");
+  const [aErr,setAErr]=useState("");
+  const [aLoad,setALoad]=useState(false);
+  const [adminOpen,setAdminOpen]=useState(false);
+  const [adminAuth,setAdminAuth]=useState(false);
+  const [adminPw,setAdminPw]=useState("");
+  const [showBuy,setShowBuy]=useState(false);
+  const [faq,setFaq]=useState(null);
+  const [daily,setDaily]=useState({});
+  const [toast,setToast]=useState(null);
+  const [load,setLoad]=useState(false);
+  const fileRef=useRef();
+
+  const acc="#FF6B9D",cy2="#00f5ff",bg="#0d0d14",card="#13131f",bdr="#2a2a3d",txt="#e8e8f0",mut="#7070a0";
+
+  const showToast=(msg,c="#00ff88")=>{setToast({msg,c});setTimeout(()=>setToast(null),3500);};
+
+  useEffect(()=>{loadHall();loadDaily();},[]);
+  useEffect(()=>{if(user)loadSpins();},[user]);
+
+  const loadHall=async()=>{
+    try{const d=await sb("hall_of_prints?order=created_at.desc&limit=50");setHall(d||[]);}
+    catch{setHall([]);}
+  };
+
+  const loadDaily=async()=>{
+    try{
+      const today=new Date().toISOString().split("T")[0];
+      const d=await sb(`daily_models?fetched_date=eq.${today}`);
+      if(d&&d.length>0){
+        const g={};d.forEach(m=>{if(!g[m.category])g[m.category]=[];g[m.category].push(m);});
+        setDaily(g);
+      }
+    }catch{}
+  };
+
+  const loadSpins=async()=>{
+    if(!user)return;
+    try{
+      const today=new Date().toISOString().split("T")[0];
+      const d=await sb(`user_spins?user_id=eq.${user.id}`,{headers:{Authorization:`Bearer ${token}`}});
+      if(d&&d.length>0){
+        if(d[0].last_reset!==today){
+          await sb(`user_spins?user_id=eq.${user.id}`,{method:"PATCH",headers:{Authorization:`Bearer ${token}`},body:JSON.stringify({spins_remaining:5,last_reset:today})});
+          setSpins(5);
+        }else setSpins(d[0].lifetime_member?999:d[0].spins_remaining);
+      }else{
+        await sb("user_spins",{method:"POST",headers:{Authorization:`Bearer ${token}`},body:JSON.stringify({user_id:user.id,spins_remaining:5,last_reset:today})});
+        setSpins(5);
+      }
+    }catch{setSpins(5);}
+  };
+
+  const doAuth=async()=>{
+    if(!aForm.email||!aForm.pass){setAErr("Fill in all fields.");return;}
+    setALoad(true);setAErr("");
+    try{
+      let d;
+      if(aMode==="signup"){
+        d=await sbAuth("signup",{email:aForm.email,password:aForm.pass,data:{name:aForm.name}});
+        showToast("Welcome to Mystery3DPrints! 🎉");
+      }else{
+        d=await sbAuth("token?grant_type=password",{email:aForm.email,password:aForm.pass});
+      }
+      setUser(d.user);setToken(d.access_token);setPage("home");
+    }catch(e){setAErr(e.message);}
+    setALoad(false);
+  };
+
+  const doSpin=async()=>{
+    if(!user){setPage("auth");return;}
+    if(spins<=0){setShowBuy(true);return;}
+    if(spinning)return;
+    const ns=spins-1;setSpins(ns);setResult(null);setModel(null);setSpinning(true);
+    try{
+      await sb(`user_spins?user_id=eq.${user.id}`,{method:"PATCH",headers:{Authorization:`Bearer ${token}`},body:JSON.stringify({spins_remaining:ns})});
+    }catch{}
+  };
+
+  const onSpinEnd=cat=>{
+    setSpinning(false);setResult(cat);
+    if(cat.id==="hall"){
+      setModel(hall.length>0?hall[Math.floor(Math.random()*hall.length)]:null);
+    }else{
+      const pool=(daily[cat.id]&&daily[cat.id].length>0)?daily[cat.id]:(FALLBACK[cat.id]||[]);
+      setModel(pool.length>0?pool[Math.floor(Math.random()*pool.length)]:null);
+    }
+  };
+
+  const submitHall=async()=>{
+    if(!hForm.name.trim()||!hForm.prev)return;
+    setLoad(true);
+    try{
+      await sb("hall_of_prints",{method:"POST",body:JSON.stringify({maker_name:hForm.name,description:hForm.desc,category:hForm.category,image_url:hForm.prev,user_id:user?.id||null,approved:false})});
+      if(user){
+        const ns=spins+3;setSpins(ns);
+        await sb(`user_spins?user_id=eq.${user.id}`,{method:"PATCH",headers:{Authorization:`Bearer ${token}`},body:JSON.stringify({spins_remaining:ns})});
+      }
+      setHForm({name:"",desc:"",category:"home",img:null,prev:null});
+      setHDone(true);showToast(user?"+3 spins earned! 🎉":"Submitted! Sign up to earn spins.");
+      setTimeout(()=>setHDone(false),4000);
+    }catch{showToast("Submission failed.","#ef4444");}
+    setLoad(false);
+  };
+
+  const handleImg=e=>{
+    const f=e.target.files[0];if(!f)return;
+    const r=new FileReader();
+    r.onload=ev=>setHForm(x=>({...x,img:f,prev:ev.target.result}));
+    r.readAsDataURL(f);
+  };
+
+  const NAV=[{id:"home",l:"🎡 Spin"},{id:"categories",l:"📂 Categories"},{id:"hall",l:"🏆 Hall"},{id:"beginners",l:"🎓 Beginners"},{id:"earn",l:"⚡ Earn"}];
+
+  const inp={width:"100%",background:bg,border:`1px solid ${bdr}`,borderRadius:8,padding:"0.65rem",color:txt,fontSize:14,boxSizing:"border-box"};
+
+  return(
+    <div style={{background:bg,minHeight:"100vh",color:txt}}>
+      {toast&&<div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",background:toast.c+"22",border:`1px solid ${toast.c}44`,color:toast.c,padding:"0.75rem 1.5rem",borderRadius:10,zIndex:999,fontWeight:600,fontSize:14,whiteSpace:"nowrap"}}>{toast.msg}</div>}
+
+      <nav style={{background:card,borderBottom:`1px solid ${bdr}`,padding:"0 1rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,position:"sticky",top:0,zIndex:100}}>
+        <span style={{fontSize:16,fontWeight:800,color:acc,padding:"0.875rem 0",cursor:"pointer"}} onClick={()=>setPage("home")}>🖨️ Mystery3DPrints</span>
+        <div style={{display:"flex",gap:2,flexWrap:"wrap"}}>
+          {NAV.map(n=><button key={n.id} onClick={()=>setPage(n.id)} style={{background:page===n.id?acc+"22":"transparent",border:"none",color:page===n.id?acc:mut,padding:"0.5rem 0.75rem",borderRadius:8,fontSize:12,fontWeight:page===n.id?700:400}}>{n.l}</button>)}
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center",padding:"0.5rem 0"}}>
+          {user?(
+            <>
+              <span style={{background:acc+"22",color:acc,padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:700}}>⚡{spins===999?"∞":spins}</span>
+              <span style={{color:mut,fontSize:12}}>Hi {user.user_metadata?.name||user.email?.split("@")[0]}!</span>
+              <button onClick={()=>{setUser(null);setToken(null);setSpins(5);}} style={{background:"transparent",border:`1px solid ${bdr}`,color:mut,padding:"3px 10px",borderRadius:8,fontSize:11}}>Logout</button>
+            </>
+          ):(
+            <button onClick={()=>setPage("auth")} style={{background:acc,color:"#fff",border:"none",padding:"6px 14px",borderRadius:8,fontWeight:700,fontSize:13}}>Sign Up Free</button>
+          )}
+          <button onClick={()=>setAdminOpen(true)} style={{background:"#7b2fff22",border:"1px solid #7b2fff44",color:"#a78bfa",padding:"3px 8px",borderRadius:8,fontSize:11}}>Admin</button>
+        </div>
+      </nav>
+
+      <div style={{maxWidth:1100,margin:"0 auto",padding:"1.5rem 1rem"}}>
+
+        {page==="auth"&&(
+          <div style={{maxWidth:400,margin:"3rem auto"}}>
+            <div style={{background:card,border:`1px solid ${bdr}`,borderRadius:16,padding:"2rem"}}>
+              <h2 style={{textAlign:"center",color:acc,margin:"0 0 0.5rem"}}>{aMode==="login"?"Welcome Back!":"Join Free"}</h2>
+              <p style={{textAlign:"center",color:mut,fontSize:14,margin:"0 0 1.5rem"}}>{aMode==="login"?"Log in to spin":"5 free spins every day"}</p>
+              {aMode==="signup"&&<div style={{marginBottom:"1rem"}}><label style={{fontSize:13,color:mut,display:"block",marginBottom:4}}>Name</label><input style={inp} value={aForm.name} onChange={e=>setAForm(x=>({...x,name:e.target.value}))} placeholder="Your name"/></div>}
+              <div style={{marginBottom:"1rem"}}><label style={{fontSize:13,color:mut,display:"block",marginBottom:4}}>Email</label><input style={inp} value={aForm.email} onChange={e=>setAForm(x=>({...x,email:e.target.value}))} placeholder="you@email.com"/></div>
+              <div style={{marginBottom:"1.25rem"}}><label style={{fontSize:13,color:mut,display:"block",marginBottom:4}}>Password</label><input type="password" style={inp} value={aForm.pass} onChange={e=>setAForm(x=>({...x,pass:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&doAuth()} placeholder="••••••••"/></div>
+              {aErr&&<div style={{color:"#ef4444",fontSize:13,marginBottom:"1rem",background:"#ef444411",padding:"0.5rem 0.75rem",borderRadius:8}}>{aErr}</div>}
+              <button onClick={doAuth} disabled={aLoad} style={{width:"100%",background:acc,color:"#fff",border:"none",padding:"0.85rem",borderRadius:10,fontWeight:700,fontSize:15,marginBottom:"1rem",opacity:aLoad?0.7:1}}>
+                {aLoad?"Please wait...":aMode==="login"?"Log In":"Create Account"}
+              </button>
+              <p style={{textAlign:"center",fontSize:13,color:mut}}>
+                {aMode==="login"?"No account? ":"Have one? "}
+                <span onClick={()=>{setAMode(aMode==="login"?"signup":"login");setAErr("");}} style={{color:acc,cursor:"pointer",fontWeight:600}}>{aMode==="login"?"Sign up free":"Log in"}</span>
+              </p>
+            </div>
+          </div>
+        )}
+
+        {page==="home"&&(
+          <div>
+            <div style={{textAlign:"center",marginBottom:"2rem"}}>
+              <h1 style={{fontSize:34,fontWeight:900,margin:"0 0 0.5rem",background:`linear-gradient(135deg,${acc},${cy2})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Spin. Discover. Print.</h1>
+              <p style={{color:mut,fontSize:15,maxWidth:440,margin:"0 auto 1rem"}}>Fresh 3D print models from Printables — updated daily. Free spins every day.</p>
+              {!user&&<div style={{background:acc+"15",border:`1px solid ${acc}33`,borderRadius:10,padding:"0.75rem 1.25rem",display:"inline-block"}}><span style={{color:acc,fontWeight:600,fontSize:13}}>✨ Sign up free — 5 spins/day, earn bonus spins, join the community</span></div>}
+            </div>
+
+            <div style={{display:"flex",gap:"2rem",alignItems:"flex-start",justifyContent:"center",flexWrap:"wrap"}}>
+              <div style={{textAlign:"center"}}>
+                <Wheel spinning={spinning} onEnd={onSpinEnd}/>
+                <div style={{marginTop:"1.25rem"}}>
+                  {user?(
+                    <div>
+                      <div style={{marginBottom:"0.75rem"}}><span style={{background:acc+"22",color:acc,padding:"5px 14px",borderRadius:20,fontSize:13,fontWeight:700}}>⚡{spins===999?"Unlimited":`${spins} spin${spins!==1?"s":""} left`}</span></div>
+                      <button onClick={doSpin} disabled={spinning} style={{background:spins>0?acc:"#333",color:spins>0?"#fff":mut,border:"none",padding:"0.875rem 2.5rem",borderRadius:50,fontWeight:800,fontSize:17,boxShadow:spins>0?`0 0 30px ${acc}66`:"none"}}>
+                        {spinning?"Spinning...":spins>0?"SPIN THE WHEEL 🎲":"No Spins Left"}
+                      </button>
+                      {spins===0&&<div style={{marginTop:"1rem",display:"flex",gap:"0.5rem",justifyContent:"center"}}>
+                        <button onClick={()=>setPage("earn")} style={{background:cy2+"22",color:cy2,border:`1px solid ${cy2}44`,padding:"7px 14px",borderRadius:8,fontSize:13,fontWeight:600}}>⚡ Earn Free</button>
+                        <button onClick={()=>setShowBuy(true)} style={{background:"#7b2fff22",color:"#a78bfa",border:"1px solid #7b2fff44",padding:"7px 14px",borderRadius:8,fontSize:13,fontWeight:600}}>💎 Buy Spins</button>
+                      </div>}
+                    </div>
+                  ):(
+                    <div>
+                      <button onClick={()=>setPage("auth")} style={{background:acc,color:"#fff",border:"none",padding:"0.875rem 2.25rem",borderRadius:50,fontWeight:800,fontSize:16,boxShadow:`0 0 30px ${acc}66`}}>Sign Up to Spin Free 🎲</button>
+                      <p style={{color:mut,fontSize:12,marginTop:"0.75rem"}}>5 free spins every day • No credit card</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div style={{minWidth:260,maxWidth:340,flex:1}}>
+                {!result?(
+                  <div style={{background:card,border:`2px dashed ${bdr}`,borderRadius:16,padding:"3rem 2rem",textAlign:"center"}}>
+                    <div style={{fontSize:44,marginBottom:12}}>🎯</div>
+                    <p style={{color:mut,fontSize:14}}>Spin to discover your next print!</p>
+                  </div>
+                ):(
+                  <div style={{background:card,border:`2px solid ${result.color}44`,borderRadius:16,overflow:"hidden"}}>
+                    <div style={{background:result.color+"22",padding:"1rem",textAlign:"center",borderBottom:`1px solid ${result.color}33`}}>
+                      <span style={{fontSize:28}}>{result.emoji}</span>
+                      <div style={{fontWeight:700,color:result.color,fontSize:14,marginTop:4}}>{result.label}</div>
+                    </div>
+                    {model?(
+                      <>
+                        {result.id!=="hall"&&(model.image_url||model.img)&&(
+                          <img src={model.image_url||model.img} alt={model.name||model.maker_name} style={{width:"100%",height:180,objectFit:"cover"}} onError={e=>e.target.style.display="none"}/>
+                        )}
+                        {result.id==="hall"&&<div style={{height:120,background:result.color+"11",display:"flex",alignItems:"center",justifyContent:"center",fontSize:40}}>🏆</div>}
+                        <div style={{padding:"1rem"}}>
+                          <div style={{fontWeight:700,fontSize:15,marginBottom:5}}>{model.name||model.maker_name}</div>
+                          <div style={{color:mut,fontSize:12,marginBottom:"0.875rem"}}>{model.desc||model.description||model.summary}</div>
+                          <div style={{display:"flex",gap:"0.5rem"}}>
+                            {result.id!=="hall"&&(model.link||model.makerworld_link)&&(
+                              <a href={model.link||model.makerworld_link} target="_blank" rel="noopener noreferrer" style={{flex:1,background:acc,color:"#fff",padding:"0.6rem",borderRadius:8,fontWeight:700,fontSize:12,textAlign:"center",display:"block"}}>🖨️ Print This!</a>
+                            )}
+                            <button onClick={doSpin} disabled={spinning||spins<=0} style={{flex:1,background:"transparent",color:spins>0?txt:mut,border:`1px solid ${bdr}`,padding:"0.6rem",borderRadius:8,fontWeight:600,fontSize:12}}>
+                              🎲 Spin Again {spins>0?`(${spins})`:"(0)"}
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    ):(
+                      <div style={{padding:"2rem",textAlign:"center",color:mut,fontSize:13}}>
+                        No models yet for this category.<br/>
+                        <a href={`https://www.printables.com/search/results?q=${result.label}`} target="_blank" rel="noopener noreferrer" style={{color:acc,marginTop:8,display:"block"}}>Browse on Printables →</a>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:"1rem",marginTop:"3rem"}}>
+              {[{n:"9",l:"Categories"},{n:"180+",l:"Daily Models"},{n:"5",l:"Free Spins/Day"},{n:"Free",l:"To Join"}].map(s=>(
+                <div key={s.l} style={{background:card,border:`1px solid ${bdr}`,borderRadius:12,padding:"1.25rem",textAlign:"center"}}>
+                  <div style={{fontSize:26,fontWeight:900,color:acc}}>{s.n}</div>
+                  <div style={{color:mut,fontSize:12,marginTop:4}}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {page==="categories"&&(
+          <div>
+            <h2 style={{color:acc,marginBottom:"0.5rem"}}>Browse by Category</h2>
+            <p style={{color:mut,marginBottom:"1.5rem"}}>Pick a category and spin for something in that space.</p>
+            <div style={{background:`linear-gradient(135deg,#FF6B6B22,#FF6B9D22)`,border:"1px solid #FF6B6B44",borderRadius:16,padding:"2rem",marginBottom:"1.5rem",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"1rem"}}>
+              <div>
+                <div style={{fontSize:12,color:acc,fontWeight:700,marginBottom:8,textTransform:"uppercase",letterSpacing:1}}>⭐ Featured</div>
+                <h3 style={{margin:"0 0 0.5rem",fontSize:24,fontWeight:800}}>🏠 Home & Living</h3>
+                <p style={{color:mut,margin:"0 0 1rem",fontSize:14}}>Organizers, planters, gadgets — all printable.</p>
+                <button onClick={()=>setPage("home")} style={{background:acc,color:"#fff",border:"none",padding:"0.65rem 1.25rem",borderRadius:10,fontWeight:700,fontSize:13}}>Spin This Category 🎲</button>
+              </div>
+              <div style={{fontSize:64}}>🏠</div>
+            </div>
+            {CATS.filter(c=>c.id!=="hall").map((cat,i)=>(
+              <div key={cat.id} style={{display:"flex",gap:"1.25rem",alignItems:"center",background:card,border:`1px solid ${bdr}`,borderRadius:14,padding:"1.25rem",marginBottom:"0.75rem",flexDirection:i%2===0?"row":"row-reverse",flexWrap:"wrap"}}>
+                <div style={{width:64,height:64,background:cat.color+"22",borderRadius:14,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0}}>{cat.emoji}</div>
+                <div style={{flex:1,minWidth:140}}>
+                  <div style={{fontWeight:700,fontSize:15,marginBottom:3}}>{cat.label}</div>
+                  <span style={{background:cat.color+"22",color:cat.color,fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:600}}>20 fresh models daily</span>
+                </div>
+                <button onClick={()=>setPage("home")} style={{background:cat.color+"22",color:cat.color,border:`1px solid ${cat.color}44`,padding:"0.5rem 1rem",borderRadius:10,fontWeight:700,fontSize:12}}>Spin 🎲</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {page==="hall"&&(
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:"1rem",marginBottom:"1.5rem"}}>
+              <div><h2 style={{color:acc,margin:"0 0 0.5rem"}}>🏆 Hall of Prints</h2><p style={{color:mut}}>Show off your work. Earn +3 spins per submission!</p></div>
+              <div style={{background:cy2+"15",border:`1px solid ${cy2}33`,borderRadius:10,padding:"0.75rem 1.25rem",textAlign:"center"}}><div style={{color:cy2,fontWeight:800,fontSize:20}}>+3</div><div style={{color:mut,fontSize:11}}>spins/submission</div></div>
+            </div>
+            <div style={{background:card,border:`1px solid ${bdr}`,borderRadius:14,padding:"1.25rem",marginBottom:"1.5rem"}}>
+              <h3 style={{margin:"0 0 1rem"}}>Submit Your Print</h3>
+              <div onClick={()=>fileRef.current.click()} style={{border:`2px dashed ${bdr}`,borderRadius:10,padding:"1.25rem",textAlign:"center",cursor:"pointer",marginBottom:"1rem",background:bg}}>
+                {hForm.prev?<img src={hForm.prev} alt="preview" style={{maxHeight:160,maxWidth:"100%",borderRadius:8}}/>:<div><div style={{fontSize:28,marginBottom:6}}>📷</div><div style={{color:mut,fontSize:13}}>Tap to add photo — mobile & desktop</div></div>}
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleImg} style={{display:"none"}}/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.875rem",marginBottom:"0.875rem"}}>
+                <div><label style={{fontSize:12,color:mut,display:"block",marginBottom:3}}>Maker Name <span style={{color:acc}}>*</span></label><input style={inp} value={hForm.name} onChange={e=>setHForm(x=>({...x,name:e.target.value}))} placeholder="Your name or handle"/></div>
+                <div><label style={{fontSize:12,color:mut,display:"block",marginBottom:3}}>Category</label>
+                  <select style={inp} value={hForm.category} onChange={e=>setHForm(x=>({...x,category:e.target.value}))}>
+                    {CATS.filter(c=>c.id!=="hall").map(c=><option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{marginBottom:"1rem"}}><label style={{fontSize:12,color:mut,display:"block",marginBottom:3}}>About your print (optional)</label><textarea style={{...inp,resize:"vertical"}} rows={3} value={hForm.desc} onChange={e=>setHForm(x=>({...x,desc:e.target.value}))} placeholder="Filament, printer, tips..."/></div>
+              {hDone&&<div style={{background:cy2+"15",border:`1px solid ${cy2}33`,borderRadius:8,padding:"0.75rem",color:cy2,marginBottom:"1rem",fontSize:13}}>✅ Submitted! Pending review. {user?"+3 spins added!":"Sign up to earn spins!"}</div>}
+              <button onClick={submitHall} disabled={!hForm.name.trim()||!hForm.prev||load} style={{width:"100%",background:!hForm.name.trim()||!hForm.prev?"#1a1a2e":acc,color:!hForm.name.trim()||!hForm.prev?mut:"#fff",border:"none",padding:"0.85rem",borderRadius:10,fontWeight:700,fontSize:14}}>
+                {load?"Submitting...":"Submit & Earn 3 Spins 🏆"}
+              </button>
+            </div>
+            <h3 style={{marginBottom:"1rem"}}>Community Prints ({hall.filter(p=>p.approved).length})</h3>
+            <div style={{columns:"2 240px",gap:"0.875rem"}}>
+              {hall.filter(p=>p.approved).map(p=>(
+                <div key={p.id} style={{background:card,border:`1px solid ${bdr}`,borderRadius:12,overflow:"hidden",marginBottom:"0.875rem",breakInside:"avoid"}}>
+                  {p.image_url&&<img src={p.image_url} alt={p.maker_name} style={{width:"100%",objectFit:"cover"}} onError={e=>e.target.style.display="none"}/>}
+                  <div style={{padding:"0.75rem"}}><div style={{fontWeight:700,fontSize:13}}>{p.maker_name}</div>{p.description&&<div style={{color:mut,fontSize:11,marginTop:3}}>{p.description}</div>}</div>
+                </div>
+              ))}
+              {hall.length===0&&<div style={{color:mut,padding:"2rem",textAlign:"center",fontSize:13}}>No approved prints yet — be the first!</div>}
+            </div>
+          </div>
+        )}
+
+        {page==="earn"&&(
+          <div>
+            <h2 style={{color:acc,marginBottom:"0.5rem"}}>⚡ Earn More Spins</h2>
+            <p style={{color:mut,marginBottom:"1.5rem"}}>Complete actions or unlock unlimited access.</p>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:"1rem",marginBottom:"2rem"}}>
+              {[{a:"hall",l:"Submit to Hall of Prints",s:3,i:"📸"},{a:"refer",l:"Refer a Friend",s:5,i:"👥"},{a:"streak",l:"7-Day Login Streak",s:5,i:"🔥"},{a:"share",l:"Share on Social Media",s:2,i:"📱"}].map(a=>(
+                <div key={a.a} style={{background:card,border:`1px solid ${bdr}`,borderRadius:14,padding:"1.25rem"}}>
+                  <div style={{fontSize:28,marginBottom:10}}>{a.i}</div>
+                  <div style={{fontWeight:700,marginBottom:5,fontSize:14}}>{a.l}</div>
+                  <div style={{color:acc,fontWeight:800,fontSize:18,marginBottom:"0.875rem"}}>+{a.s} spins</div>
+                  <button onClick={()=>a.a==="hall"&&setPage("hall")} style={{width:"100%",background:acc+"22",color:acc,border:`1px solid ${acc}44`,padding:"0.6rem",borderRadius:8,fontWeight:600,fontSize:12}}>
+                    {a.a==="hall"?"Submit Now →":"Coming Soon"}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <h3 style={{marginBottom:"1rem"}}>💎 Buy Spins</h3>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:"1rem"}}>
+              {[{l:"Starter Pack",s:"10",p:"$1.99",c:"#4ECDC4"},{l:"Power Pack",s:"50",p:"$4.99",c:acc,f:true},{l:"Lifetime Unlimited",s:"∞",p:"$99",c:"#7b2fff"}].map(p=>(
+                <div key={p.l} style={{background:card,border:`2px solid ${p.f?p.c:bdr}`,borderRadius:14,padding:"1.25rem",textAlign:"center",position:"relative"}}>
+                  {p.f&&<div style={{position:"absolute",top:-11,left:"50%",transform:"translateX(-50%)",background:acc,color:"#fff",fontSize:10,padding:"2px 10px",borderRadius:20,fontWeight:700,whiteSpace:"nowrap"}}>POPULAR</div>}
+                  <div style={{fontSize:26,fontWeight:900,color:p.c,marginBottom:3}}>{p.s}</div>
+                  <div style={{fontSize:11,color:mut,marginBottom:6}}>{p.s==="∞"?"spins forever":"spins"}</div>
+                  <div style={{fontWeight:700,marginBottom:3,fontSize:13}}>{p.l}</div>
+                  <div style={{fontSize:20,fontWeight:900,color:p.c,marginBottom:"0.875rem"}}>{p.p}</div>
+                  <button style={{width:"100%",background:p.c,color:"#fff",border:"none",padding:"0.6rem",borderRadius:8,fontWeight:700,fontSize:13}}>Buy Now</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {page==="beginners"&&(
+          <div>
+            <h2 style={{color:acc,marginBottom:"0.5rem"}}>🎓 Beginner's Guide</h2>
+            <p style={{color:mut,marginBottom:"1.5rem"}}>Never printed before? Start here. No jargon.</p>
+            {[
+              {q:"What is 3D printing?",a:"A process where a digital design is turned into a physical object by layering material one thin slice at a time. Think LEGO — but automated and precise."},
+              {q:"What materials do I need?",a:"Start with PLA filament — beginner-friendly, affordable, and comes in hundreds of colors. Works on almost every printer."},
+              {q:"What printer should I buy?",a:"The Bambu Lab A1 Mini is easiest for beginners — fast and automated. The Creality Ender 3 is cheaper but requires more tinkering."},
+              {q:"Where do I find free models?",a:"Printables.com (by Prusa), MakerWorld.com (by Bambu), and Thingiverse.com are the biggest free libraries. Millions of free designs between them."},
+              {q:"What is slicing software?",a:"Software that converts your 3D model file into printer instructions. Bambu Studio and Cura are the most popular free options."},
+              {q:"How long does a print take?",a:"20 minutes for small objects up to 24+ hours for large detailed models. Modern Bambu Lab printers run 5–10x faster than older machines."},
+            ].map((item,i)=>(
+              <div key={i} style={{background:card,border:`1px solid ${bdr}`,borderRadius:12,marginBottom:"0.75rem",overflow:"hidden"}}>
+                <button onClick={()=>setFaq(faq===i?null:i)} style={{width:"100%",background:"transparent",border:"none",padding:"1rem 1.25rem",textAlign:"left",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",color:txt,fontSize:14,fontWeight:600}}>
+                  <span>{item.q}</span>
+                  <span style={{color:acc,fontSize:20,transform:faq===i?"rotate(45deg)":"none",transition:"0.2s",flexShrink:0}}>+</span>
+                </button>
+                {faq===i&&<div style={{padding:"0 1.25rem 1rem",color:mut,fontSize:13,lineHeight:1.8}}>{item.a}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {showBuy&&(
+        <div style={{position:"fixed",inset:0,background:"#000000cc",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:"1rem"}}>
+          <div style={{background:card,border:`1px solid ${bdr}`,borderRadius:16,padding:"2rem",maxWidth:380,width:"100%"}}>
+            <h3 style={{margin:"0 0 1.5rem",color:acc}}>💎 Get More Spins</h3>
+            {[{l:"10 Spins",p:"$1.99"},{l:"50 Spins",p:"$4.99"},{l:"Lifetime Unlimited",p:"$99"}].map(p=>(
+              <div key={p.l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:bg,border:`1px solid ${bdr}`,borderRadius:10,padding:"0.875rem",marginBottom:"0.75rem"}}>
+                <span style={{fontWeight:600,fontSize:14}}>{p.l}</span>
+                <div style={{display:"flex",gap:"0.75rem",alignItems:"center"}}>
+                  <span style={{color:acc,fontWeight:800}}>{p.p}</span>
+                  <button style={{background:acc,color:"#fff",border:"none",padding:"5px 12px",borderRadius:8,fontWeight:700,fontSize:12}}>Buy</button>
+                </div>
+              </div>
+            ))}
+            <button onClick={()=>setShowBuy(false)} style={{width:"100%",background:"transparent",border:`1px solid ${bdr}`,color:mut,padding:"0.75rem",borderRadius:10,marginTop:"0.5rem"}}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {adminOpen&&(
+        <div style={{position:"fixed",inset:0,background:"#000000cc",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:"1rem"}}>
+          <div style={{background:card,border:`1px solid ${bdr}`,borderRadius:16,padding:"2rem",width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1.5rem"}}>
+              <h3 style={{margin:0,color:"#a78bfa"}}>🔐 Admin Panel</h3>
+              <button onClick={()=>{setAdminOpen(false);setAdminAuth(false);setAdminPw("");}} style={{background:"transparent",border:"none",color:mut,fontSize:20}}>✕</button>
+            </div>
+            {!adminAuth?(
+              <div>
+                <input type="password" style={{...inp,marginBottom:12}} value={adminPw} onChange={e=>setAdminPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(adminPw==="Rotech!789"?setAdminAuth(true):null)} placeholder="Admin password"/>
+                <button onClick={()=>adminPw==="Rotech!789"?setAdminAuth(true):showToast("Wrong password.","#ef4444")} style={{width:"100%",background:"#7b2fff",color:"#fff",border:"none",padding:"0.75rem",borderRadius:10,fontWeight:700}}>Login</button>
+              </div>
+            ):(
+              <div>
+                <div style={{display:"flex",gap:"1rem",marginBottom:"1.25rem"}}>
+                  <div style={{background:bg,border:`1px solid ${bdr}`,borderRadius:10,padding:"0.875rem",flex:1,textAlign:"center"}}><div style={{fontSize:20,fontWeight:800,color:"#22c55e"}}>{hall.length}</div><div style={{color:mut,fontSize:11}}>Approved</div></div>
+                </div>
+                <button onClick={loadHall} style={{background:cy2+"22",color:cy2,border:`1px solid ${cy2}33`,padding:"0.5rem 1rem",borderRadius:8,fontSize:12,marginBottom:"1rem"}}>🔄 Refresh</button>
+                <h4 style={{color:"#f59e0b",margin:"0 0 0.875rem"}}>⏳ Pending Approval ({hall.filter(p=>!p.approved).length})</h4>
+                {hall.filter(p=>!p.approved).length===0&&<div style={{color:mut,fontSize:13,marginBottom:"1rem"}}>No pending submissions.</div>}
+                {hall.filter(p=>!p.approved).map(p=>(
+                  <div key={p.id} style={{background:bg,border:`1px solid #f59e0b44`,borderRadius:10,padding:"0.75rem 1rem",marginBottom:"0.5rem"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"0.5rem"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:13}}>{p.maker_name}</div>
+                        {p.description&&<div style={{color:mut,fontSize:11,marginTop:2}}>{p.description}</div>}
+                      </div>
+                      {p.image_url&&<img src={p.image_url} alt="" style={{width:50,height:50,objectFit:"cover",borderRadius:6,flexShrink:0}}/>}
+                    </div>
+                    <div style={{display:"flex",gap:"0.5rem",marginTop:"0.75rem"}}>
+                      <button onClick={async()=>{try{await sb(`hall_of_prints?id=eq.${p.id}`,{method:"PATCH",body:JSON.stringify({approved:true})});loadHall();showToast("Approved! ✅");}catch{showToast("Error.","#ef4444");}}} style={{flex:1,background:"#00ff8822",border:"1px solid #00ff8844",color:"#00ff88",padding:"0.4rem",borderRadius:8,fontWeight:600,fontSize:12}}>✅ Approve</button>
+                      <button onClick={async()=>{try{await sb(`hall_of_prints?id=eq.${p.id}`,{method:"DELETE"});loadHall();showToast("Deleted.","#a0a0c0");}catch{showToast("Error.","#ef4444");}}} style={{flex:1,background:"#ef444422",border:"1px solid #ef444444",color:"#ef4444",padding:"0.4rem",borderRadius:8,fontWeight:600,fontSize:12}}>🗑️ Delete</button>
+                    </div>
+                  </div>
+                ))}
+                <h4 style={{color:"#22c55e",margin:"1rem 0 0.875rem"}}>✅ Approved ({hall.filter(p=>p.approved).length})</h4>
+                {hall.filter(p=>p.approved).length===0&&<div style={{color:mut,fontSize:13}}>No approved posts yet.</div>}
+                {hall.filter(p=>p.approved).map(p=>(
+                  <div key={p.id} style={{background:bg,border:`1px solid ${bdr}`,borderRadius:10,padding:"0.75rem 1rem",marginBottom:"0.5rem",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"0.5rem"}}>
+                    <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:13}}>{p.maker_name}</div>{p.description&&<div style={{color:mut,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.description}</div>}</div>
+                    <button onClick={async()=>{try{await sb(`hall_of_prints?id=eq.${p.id}`,{method:"DELETE"});loadHall();showToast("Removed.","#a0a0c0");}catch{showToast("Error.","#ef4444");}}} style={{background:"#ef444422",border:"1px solid #ef444444",color:"#ef4444",padding:"0.25rem 0.75rem",borderRadius:8,fontSize:11,flexShrink:0}}>Remove</button>
+                  </div>
+                ))}
+                {hall.length===0&&<div style={{color:mut,fontSize:13}}>No approved posts yet.</div>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.render(React.createElement(App),document.getElementById("root"));
+</script>
+</body>
+</html>
