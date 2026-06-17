@@ -60,6 +60,13 @@ const fetchCategory = async (cat) => {
     });
 
     const data = await res.json();
+    console.log(`Raw response for ${cat.id}:`, JSON.stringify(data).slice(0, 500));
+
+    if (data.errors) {
+      console.error(`GraphQL errors for ${cat.id}:`, JSON.stringify(data.errors));
+      return [];
+    }
+
     const items = data?.data?.prints?.items || [];
     const today = new Date().toISOString().split("T")[0];
 
